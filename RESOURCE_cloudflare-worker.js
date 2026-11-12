@@ -14,9 +14,42 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    if (request.method !== 'POST') {
+      return new Response(JSON.stringify({ error: { message: 'Please send a POST request.' } }), {
+        status: 405,
+        headers: corsHeaders
+      });
+    }
+
     const apiKey = env.OPENAI_API_KEY; // Make sure to name your secret OPENAI_API_KEY in the Cloudflare Workers dashboard
+    if (!apiKey) {
+      return new Response(JSON.stringify({
+        error: {
+          message: 'The chatbot is not configured. Add the OPENAI_API_KEY secret in Cloudflare Worker settings.'
+        }
+      }), {
+        status: 500,
+        headers: corsHeaders
+      });
+    }
+
     const apiUrl = 'https://api.openai.com/v1/chat/completions';
-    const userInput = await request.json();
+    let userInput;
+    try {
+      userInput = await request.json();
+    } catch {
+      return new Response(JSON.stringify({ error: { message: 'The request body must be valid JSON.' } }), {
+        status: 400,
+        headers: corsHeaders
+      });
+    }
+
+    if (!Array.isArray(userInput.messages)) {
+      return new Response(JSON.stringify({ error: { message: 'The request must include a messages array.' } }), {
+        status: 400,
+        headers: corsHeaders
+      });
+    }
 
     const requestBody = {
       model: 'gpt-4o',
@@ -35,6 +68,19 @@ export default {
 
     const data = await response.json();
 
-    return new Response(JSON.stringify(data), { headers: corsHeaders });
+    if (!response.ok) {
+      const message = response.status === 401
+        ? 'OpenAI rejected the Worker API key. Check the OPENAI_API_KEY secret in Cloudflare.'
+        : `The OpenAI request failed with status ${response.status}. Check the Worker configuration and try again.`;
+      return new Response(JSON.stringify({ error: { message } }), {
+        status: response.status,
+        headers: corsHeaders
+      });
+    }
+
+    return new Response(JSON.stringify(data), {
+      status: response.status,
+      headers: corsHeaders
+    });
   }
 };
